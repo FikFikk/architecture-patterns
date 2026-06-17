@@ -1,0 +1,136 @@
+# Circuit Breaker State Diagram
+
+## State Transitions
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  ┌──────────────┐                                          │
+│  │   CLOSED     │  Normal operation                        │
+│  │  (Normal)    │  - Requests pass through                 │
+│  │              │  - Track failures                        │
+│  └──────┬───────┘                                          │
+│         │                                                   │
+│         │ failure_count >= threshold                       │
+│         ▼                                                   │
+│  ┌──────────────┐                                          │
+│  │     OPEN     │  Circuit tripped                         │
+│  │  (Tripped)   │  - Reject requests immediately           │
+│  │              │  - Return fallback                       │
+│  └──────┬───────┘                                          │
+│         │                                                   │
+│         │ timeout elapsed                                  │
+│         ▼                                                   │
+│  ┌──────────────┐                                          │
+│  │  HALF-OPEN   │  Testing recovery                        │
+│  │  (Testing)   │  - Allow limited requests                │
+│  │              │  - Monitor success                       │
+│  └──────┬───────┘                                          │
+│         │                                                   │
+│         ├─── success_count >= threshold → CLOSED           │
+│         └─── any failure → OPEN                            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Timeline Example
+
+```
+Time    State        Event                Action
+────────────────────────────────────────────────────────────
+00:00   CLOSED       Request 1            ✓ Pass through
+00:01   CLOSED       Request 2 (fail)     ✗ Count failure (1/5)
+00:02   CLOSED       Request 3 (fail)     ✗ Count failure (2/5)
+00:03   CLOSED       Request 4 (fail)     ✗ Count failure (3/5)
+00:04   CLOSED       Request 5 (fail)     ✗ Count failure (4/5)
+00:05   CLOSED       Request 6 (fail)     ✗ Threshold reached!
+00:05   OPEN         Circuit trips        → State: OPEN
+00:06   OPEN         Request 7            ✗ Rejected (CircuitBreakerError)
+00:10   OPEN         Request 8            ✗ Rejected (CircuitBreakerError)
+01:05   OPEN         Timeout elapsed      → State: HALF-OPEN
+01:05   HALF-OPEN    Request 9            ✓ Test request (1/2)
+01:06   HALF-OPEN    Request 10           ✓ Test request (2/2)
+01:06   CLOSED       Threshold met        → State: CLOSED
+01:07   CLOSED       Request 11           ✓ Normal operation resumed
+```
+
+## Architecture Integration
+
+```
+┌─────────────┐
+│   Client    │
+└──────┬──────┘
+       │ HTTP Request
+       ▼
+┌─────────────────────────────────┐
+│      Application Server         │
+│  ┌───────────────────────────┐  │
+│  │   Circuit Breaker Layer   │  │
+│  │  - Monitor requests       │  │
+│  │  - Track failures         │  │
+│  │  - Manage state           │  │
+│  └───────────┬───────────────┘  │
+└──────────────┼──────────────────┘
+               │
+               ▼
+    ┌──────────────────────┐
+    │  External Service    │
+    │  (May be unstable)   │
+    └──────────────────────┘
+
+Flow when CLOSED:
+  Client → Circuit Breaker → External Service → Response
+
+Flow when OPEN:
+  Client → Circuit Breaker → Fallback Response
+                 (no external call)
+```
+
+## Distributed System Pattern
+
+```
+┌────────────┐      ┌────────────┐      ┌────────────┐
+│  Service A │      │  Service B │      │  Service C │
+│            │      │            │      │            │
+│  ┌──────┐  │      │  ┌──────┐  │      │  ┌──────┐  │
+│  │  CB  │  │──────│  │  CB  │  │──────│  │  CB  │  │
+│  └──────┘  │      │  └──────┘  │      │  └──────┘  │
+└──────┬─────┘      └──────┬─────┘      └──────┬─────┘
+       │                   │                   │
+       └───────────────────┼───────────────────┘
+                           ▼
+                  ┌─────────────────┐
+                  │  Shared State   │
+                  │  (Redis/etcd)   │
+                  │  - State sync   │
+                  │  - Metrics      │
+                  └─────────────────┘
+```
+
+## Metrics Dashboard Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Circuit Breaker Dashboard - Payment Service            │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Current State: [CLOSED]      Uptime: 99.8%           │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  Request Rate (last 5m)                         │   │
+│  │  ▂▃▅▇█▇▅▃▂▁▂▃▅▇  1,234 req/min                 │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  Failure Rate                                   │   │
+│  │  ▁▁▁▃▅▇█▇▅▃▁▁▁  2.3% (last hour)               │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  State Changes (last 24h)                       │   │
+│  │  CLOSED → OPEN: 3 times                         │   │
+│  │  Avg recovery time: 45s                         │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
