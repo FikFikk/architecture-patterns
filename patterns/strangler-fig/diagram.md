@@ -1,0 +1,363 @@
+# Strangler Fig Pattern - Diagrams
+
+## Arsitektur Overview
+
+### Before Migration
+```
+┌─────────────────────────────────────────┐
+│         Client Applications             │
+└──────────────────┬──────────────────────┘
+                   │
+                   │ All Requests
+                   │
+         ┌─────────▼──────────┐
+         │                    │
+         │  Legacy Monolith   │
+         │                    │
+         │  ┌──────────────┐  │
+         │  │   Users      │  │
+         │  ├──────────────┤  │
+         │  │   Orders     │  │
+         │  ├──────────────┤  │
+         │  │   Products   │  │
+         │  ├──────────────┤  │
+         │  │   Payments   │  │
+         │  └──────────────┘  │
+         │                    │
+         └─────────┬──────────┘
+                   │
+         ┌─────────▼──────────┐
+         │  Monolithic DB     │
+         └────────────────────┘
+```
+
+### During Migration (Strangler Pattern Active)
+```
+┌─────────────────────────────────────────┐
+│         Client Applications             │
+└──────────────────┬──────────────────────┘
+                   │
+         ┌─────────▼──────────┐
+         │                    │
+         │   Facade/Proxy     │  ◄── Intercept Layer
+         │   (Nginx/Kong)     │      (Routing Logic)
+         │                    │
+         └─┬────────┬─────────┘
+           │        │
+    ┌──────▼───┐   └────────┬─────────────┐
+    │          │            │             │
+┌───▼──────┐ ┌─▼────────┐ ┌▼──────────┐  │
+│ Users    │ │ Orders   │ │ Products  │  │
+│ Service  │ │ Service  │ │ Service   │  │
+│ (New)    │ │ (New)    │ │ (New)     │  │
+└───┬──────┘ └─┬────────┘ └┬──────────┘  │
+    │          │            │             │
+┌───▼──────┐ ┌─▼────────┐ ┌▼──────────┐  │
+│ Users DB │ │Orders DB │ │Products DB│  │
+└──────────┘ └──────────┘ └───────────┘  │
+                                          │
+                              ┌───────────▼────────┐
+                              │  Legacy Monolith   │
+                              │  (Shrinking)       │
+                              │  ┌──────────────┐  │
+                              │  │   Payments   │  │
+                              │  │   Reports    │  │
+                              │  └──────────────┘  │
+                              └─────────┬──────────┘
+                                        │
+                              ┌─────────▼──────────┐
+                              │  Monolithic DB     │
+                              │  (Shrinking)       │
+                              └────────────────────┘
+```
+
+### After Migration (Target State)
+```
+┌─────────────────────────────────────────┐
+│         Client Applications             │
+└──────────────────┬──────────────────────┘
+                   │
+         ┌─────────▼──────────┐
+         │                    │
+         │   API Gateway      │
+         │                    │
+         └─┬────┬─────┬───┬───┘
+           │    │     │   │
+    ┌──────▼┐ ┌─▼───┐ │   │
+    │ Users │ │Order│ │   │
+    │Service│ │Servi│ │   │
+    │       │ │ce   │ │   │
+    └───┬───┘ └──┬──┘ │   │
+        │        │    │   │
+    ┌───▼────┐┌──▼──┐ │   │
+    │Users DB││Order│ │   │
+    │        ││s DB │ │   │
+    └────────┘└─────┘ │   │
+                  ┌───▼┐ ┌▼────┐
+                  │Prod│ │Pay  │
+                  │Serv│ │Serv │
+                  │ice │ │ice  │
+                  └─┬──┘ └┬────┘
+                ┌───▼──┐┌─▼────┐
+                │Prod  ││Pay   │
+                │DB    ││DB    │
+                └──────┘└──────┘
+
+Legacy Monolith: RETIRED ✓
+```
+
+## Migration Timeline
+
+```
+Month 0-2: Preparation
+├── Setup observability
+├── Setup proxy/gateway layer
+├── Identify bounded contexts
+└── Architecture design
+
+Month 3-5: First Service (Users)
+├── Implement users service
+├── Shadow mode (1 month)
+├── Canary deployment (5% → 25% → 50%)
+└── Full cutover (100%)
+
+Month 6-8: Second Service (Orders)
+├── Implement orders service
+├── Handle dependencies with Users
+├── Canary deployment
+└── Full cutover
+
+Month 9-11: Third Service (Products)
+├── Implement products service
+├── Data migration (largest dataset)
+├── Canary deployment
+└── Full cutover
+
+Month 12-14: Fourth Service (Payments)
+├── Implement payments (most critical)
+├── Extra validation & testing
+├── Gradual rollout
+└── Full cutover
+
+Month 15-16: Decommission Legacy
+├── Stop dual-write
+├── Migrate remaining data
+├── Archive legacy code
+└── Remove proxy routing for legacy
+
+Month 17-18: Optimization
+├── Remove facade overhead
+├── Direct service-to-service communication
+├── Performance tuning
+└── Documentation & celebration 🎉
+```
+
+## Deployment Strategies
+
+### Canary Deployment
+```
+Stage 1: 5% Traffic
+┌────────┐
+│ Proxy  │
+└─┬─┬─┬──┘
+  │ │ └──────────┐
+  │ └─────┐      │
+  │       │      │
+  5%     95%     │
+  │       │      │
+┌─▼──┐  ┌─▼─────▼┐
+│New │  │ Legacy │
+└────┘  └────────┘
+
+Stage 2: 25% Traffic
+┌────────┐
+│ Proxy  │
+└─┬─┬─┬──┘
+  │ │ └─────┐
+  │ └───┐   │
+  │     │   │
+ 25%   75%  │
+  │     │   │
+┌─▼──┐ ┌─▼──▼┐
+│New │ │Legac│
+└────┘ └─────┘
+
+Stage 3: 50% Traffic
+┌────────┐
+│ Proxy  │
+└─┬──┬───┘
+  │  │
+ 50% 50%
+  │  │
+┌─▼──▼┐ ┌▼────┐
+│New  │ │Legac│
+└─────┘ └─────┘
+
+Stage 4: 100% Traffic
+┌────────┐
+│ Proxy  │
+└─┬──────┘
+  │
+ 100%
+  │
+┌─▼────┐
+│ New  │
+└──────┘
+
+Legacy: Ready to retire
+```
+
+### Shadow Mode (Testing)
+```
+                Request
+                  │
+        ┌─────────▼─────────┐
+        │      Proxy        │
+        │                   │
+        │  ┌─────────────┐  │
+        │  │   Router    │  │
+        │  └──┬──────┬───┘  │
+        └─────┼──────┼──────┘
+              │      │
+      Primary │      │ Shadow (async)
+              │      │
+        ┌─────▼──┐ ┌─▼──────┐
+        │ Legacy │ │  New   │
+        │        │ │        │
+        └────┬───┘ └───┬────┘
+             │         │
+             │      ┌──▼─────────┐
+             │      │ Compare    │
+             │      │ Results    │
+             │      │ (metrics)  │
+             │      └────────────┘
+             │
+        ┌────▼─────┐
+        │ Response │ ◄── Return legacy response
+        └──────────┘
+```
+
+## Data Flow
+
+### Read Path dengan Fallback
+```
+┌────────┐
+│ Client │
+└───┬────┘
+    │ GET /users/123
+    │
+┌───▼────────┐
+│   Proxy    │
+└───┬────────┘
+    │
+┌───▼──────────┐
+│ Users Service│
+└───┬──────────┘
+    │
+    │ 1. Check new DB
+    ▼
+┌──────────┐     NOT FOUND
+│ New DB   │────────┐
+└──────────┘        │
+                    │ 2. Fallback
+              ┌─────▼──────┐
+              │ Legacy DB  │
+              └─────┬──────┘
+                    │ FOUND
+                    │
+              ┌─────▼────────────┐
+              │ 3. Transform     │
+              │ 4. Lazy Migrate  │
+              └─────┬────────────┘
+                    │
+              ┌─────▼──────┐
+              │ Save to    │
+              │ New DB     │
+              └─────┬──────┘
+                    │
+              ┌─────▼──────┐
+              │  Return    │
+              └────────────┘
+```
+
+### Write Path dengan Dual-Write
+```
+┌────────┐
+│ Client │
+└───┬────┘
+    │ POST /users
+    │
+┌───▼────────┐
+│   Proxy    │
+└───┬────────┘
+    │
+┌───▼──────────┐
+│ Users Service│
+└───┬──────────┘
+    │
+    │ 1. Primary write
+    ▼
+┌──────────┐
+│ New DB   │ ◄── Source of truth
+└──────────┘
+    │
+    │ 2. Async dual-write
+    │    (best effort)
+    ▼
+┌──────────┐
+│Legacy DB │ ◄── Backward compat
+└──────────┘
+    │
+    │ 3. Return success
+    │    (even if legacy fails)
+    ▼
+┌──────────┐
+│ Response │
+└──────────┘
+```
+
+## Monitoring Dashboard Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│         Strangler Fig Migration Dashboard               │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Migration Progress                                     │
+│  ┌───────────────────────────────────────────────┐     │
+│  │ Users:    [████████████████████] 100%         │     │
+│  │ Orders:   [████████████░░░░░░░] 75%           │     │
+│  │ Products: [████████░░░░░░░░░░░] 50%           │     │
+│  │ Payments: [████░░░░░░░░░░░░░░░] 25%           │     │
+│  └───────────────────────────────────────────────┘     │
+│                                                         │
+│  Traffic Split (New vs Legacy)                          │
+│  ┌───────────────────────────────────────────────┐     │
+│  │ Users:    100% New  |  0% Legacy               │     │
+│  │ Orders:    50% New  | 50% Legacy               │     │
+│  │ Products:  25% New  | 75% Legacy               │     │
+│  │ Payments:   5% New  | 95% Legacy (Canary)      │     │
+│  └───────────────────────────────────────────────┘     │
+│                                                         │
+│  Error Rates                                            │
+│  ┌───────────────────────────────────────────────┐     │
+│  │ New Services:    0.01%  ✓                      │     │
+│  │ Legacy:          0.15%                         │     │
+│  │ Dual Write Fail: 0.02%  ⚠️                     │     │
+│  └───────────────────────────────────────────────┘     │
+│                                                         │
+│  Response Time (p95)                                    │
+│  ┌───────────────────────────────────────────────┐     │
+│  │ New Services:    120ms  ✓                      │     │
+│  │ Legacy:          450ms                         │     │
+│  └───────────────────────────────────────────────┘     │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+**Catatan:**
+- Semua diagram menggunakan ASCII art untuk kompatibilitas
+- Untuk production dashboard, gunakan Grafana dengan Prometheus
+- Sesuaikan timeline dengan kompleksitas sistem Anda

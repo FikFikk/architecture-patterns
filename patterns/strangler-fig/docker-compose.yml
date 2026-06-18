@@ -1,0 +1,123 @@
+# Docker Compose untuk Strangler Fig Pattern Demo
+
+version: '3.8'
+
+services:
+  # Nginx sebagai Facade/Proxy Layer
+  nginx-proxy:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - legacy-monolith
+      - users-service
+      - orders-service
+    networks:
+      - strangler-net
+
+  # Legacy Monolith (simulasi)
+  legacy-monolith:
+    image: python:3.11-slim
+    command: python -m http.server 8080
+    working_dir: /app
+    volumes:
+      - ./legacy:/app
+    networks:
+      - strangler-net
+
+  # New Users Service
+  users-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn example_service:app --host 0.0.0.0 --port 8081
+    environment:
+      - LEGACY_SERVICE_URL=http://legacy-monolith:8080
+      - ENABLE_DUAL_WRITE=true
+      - ENABLE_FALLBACK_READ=true
+    ports:
+      - "8081:8081"
+    depends_on:
+      - users-db
+    networks:
+      - strangler-net
+
+  # New Orders Service
+  orders-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn example_service:app --host 0.0.0.0 --port 8082
+    environment:
+      - LEGACY_SERVICE_URL=http://legacy-monolith:8080
+      - ENABLE_DUAL_WRITE=true
+    ports:
+      - "8082:8082"
+    depends_on:
+      - orders-db
+    networks:
+      - strangler-net
+
+  # Database untuk Users Service
+  users-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: users
+      POSTGRES_USER: userservice
+      POSTGRES_PASSWORD: password123
+    volumes:
+      - users-data:/var/lib/postgresql/data
+    networks:
+      - strangler-net
+
+  # Database untuk Orders Service
+  orders-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orderservice
+      POSTGRES_PASSWORD: password123
+    volumes:
+      - orders-data:/var/lib/postgresql/data
+    networks:
+      - strangler-net
+
+  # Prometheus untuk monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - strangler-net
+
+  # Grafana untuk visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - strangler-net
+
+volumes:
+  users-data:
+  orders-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  strangler-net:
+    driver: bridge
