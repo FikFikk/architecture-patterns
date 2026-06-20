@@ -1,0 +1,14 @@
+# Python dependencies untuk Event Sourcing pattern examples
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Data validation
+pydantic>=2.0.0
+
+# For production implementations (optional)
+# sqlalchemy>=2.0.0  # Untuk persistent event store
+# psycopg2-binary>=2.9.0  # PostgreSQL driver
+# redis>=5.0.0  # Untuk caching dan projections
+# kafka-python>=2.0.0  # Untuk event streaming
