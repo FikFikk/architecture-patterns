@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'sidecar-demo'
+    static_configs:
+      - targets: ['metrics-sidecar:9090']
+        labels:
+          app: 'demo-app'
+          type: 'sidecar-metrics'

@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  # Main application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: demo-app
+    ports:
+      - "8080:8080"
+    volumes:
+      - logs:/var/log/app
+      - config:/etc/app
+    networks:
+      - sidecar-demo
+    environment:
+      - POD_NAME=demo-app
+      - POD_NAMESPACE=default
+      - CONTAINER_NAME=app
+
+  # Logging sidecar
+  logging-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile.sidecar
+    container_name: logging-sidecar
+    command: python logging_sidecar.py --log-dir /var/log/app --endpoint http://elasticsearch:9200
+    volumes:
+      - logs:/var/log/app:ro
+    networks:
+      - sidecar-demo
+    environment:
+      - POD_NAME=demo-app
+      - POD_NAMESPACE=default
+    depends_on:
+      - app
+      - elasticsearch
+
+  # Metrics collector sidecar
+  metrics-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile.sidecar
+    container_name: metrics-sidecar
+    command: python metrics_collector.py --app-metrics-url http://app:8080/metrics --port 9090
+    ports:
+      - "9090:9090"
+    networks:
+      - sidecar-demo
+    depends_on:
+      - app
+
+  # Config watcher sidecar
+  config-sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile.sidecar
+    container_name: config-sidecar
+    command: python config_watcher.py --config-file /etc/app/config.yaml --reload-endpoint http://app:8080/reload --check-interval 10
+    volumes:
+      - config:/etc/app:ro
+    networks:
+      - sidecar-demo
+    depends_on:
+      - app
+
+  # Elasticsearch untuk log storage
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks:
+      - sidecar-demo
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+  # Prometheus untuk metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - sidecar-demo
+    depends_on:
+      - metrics-sidecar
+
+  # Grafana untuk visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - sidecar-demo
+    depends_on:
+      - prometheus
+
+volumes:
+  logs:
+  config:
+  es-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  sidecar-demo:
+    driver: bridge
