@@ -1,0 +1,4 @@
+# Config/requirements file for Transactional Outbox code example
+# No external package is strictly required since we use Python standard library sqlite3, json, and unittest.
+# We list standard packages and Python version context for consistency with other patterns.
+pytest>=7.0.0
