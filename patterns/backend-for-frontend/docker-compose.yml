@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # Redis untuk caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Web BFF
+  web-bff:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "8000:8000"
+    environment:
+      - USER_SERVICE_URL=http://user-service:8001
+      - PRODUCT_SERVICE_URL=http://product-service:8002
+      - ORDER_SERVICE_URL=http://order-service:8003
+      - REVIEW_SERVICE_URL=http://review-service:8004
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Mobile BFF
+  mobile-bff:
+    build:
+      context: .
+      dockerfile: Dockerfile.mobile
+    ports:
+      - "8001:8001"
+    environment:
+      - USER_SERVICE_URL=http://user-service:8001
+      - PRODUCT_SERVICE_URL=http://product-service:8002
+      - ORDER_SERVICE_URL=http://order-service:8003
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Mock User Service (untuk demo)
+  user-service:
+    image: mockoon/cli:latest
+    ports:
+      - "8081:8001"
+    volumes:
+      - ./mock-services/user-service.json:/data/user-service.json
+    command: -d /data/user-service.json -p 8001
+
+  # Mock Product Service (untuk demo)
+  product-service:
+    image: mockoon/cli:latest
+    ports:
+      - "8082:8002"
+    volumes:
+      - ./mock-services/product-service.json:/data/product-service.json
+    command: -d /data/product-service.json -p 8002
+
+  # Mock Order Service (untuk demo)
+  order-service:
+    image: mockoon/cli:latest
+    ports:
+      - "8083:8003"
+    volumes:
+      - ./mock-services/order-service.json:/data/order-service.json
+    command: -d /data/order-service.json -p 8003
+
+  # Prometheus untuk monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Grafana untuk visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:

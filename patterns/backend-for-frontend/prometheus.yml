@@ -1,0 +1,23 @@
+# Prometheus configuration untuk monitoring BFF services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Web BFF
+  - job_name: 'web-bff'
+    static_configs:
+      - targets: ['web-bff:8000']
+    metrics_path: '/metrics'
+
+  # Mobile BFF
+  - job_name: 'mobile-bff'
+    static_configs:
+      - targets: ['mobile-bff:8001']
+    metrics_path: '/metrics'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']

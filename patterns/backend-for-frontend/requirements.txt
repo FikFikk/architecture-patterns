@@ -1,0 +1,32 @@
+# Backend for Frontend (BFF) Pattern - Dependencies
+
+# FastAPI framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+
+# HTTP client
+httpx==0.27.2
+
+# Redis untuk caching
+redis==5.1.1
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==5.0.0
+
+# Monitoring
+prometheus-client==0.21.0
+
+# Logging
+python-json-logger==2.0.7
+
+# Rate limiting
+slowapi==0.1.9
+
+# CORS
+python-multipart==0.0.12
+
+# Environment variables
+python-dotenv==1.0.1
